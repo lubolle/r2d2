@@ -52,8 +52,9 @@ export function driveValue(t) {
   return Math.round(v);
 }
 
-export const steerPacket = (s) => packet(CMD_MOTOR, [PORT_STEER, steerValue(s)]);
-export const drivePacket = (t) => packet(CMD_MOTOR, [PORT_DRIVE, driveValue(t)]);
+export const motorPacket = (port, value) => packet(CMD_MOTOR, [port, value]);
+export const steerPacket = (s) => motorPacket(PORT_STEER, steerValue(s));
+export const drivePacket = (t) => motorPacket(PORT_DRIVE, driveValue(t));
 export const soundPacket = (id) => packet(CMD_SOUND, [id]);
 
 export const toHex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();

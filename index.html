@@ -86,6 +86,23 @@
     details { margin-top: 12px; color: var(--muted); }
     summary { padding: 8px 0; }
 
+    #debugToggle { background: var(--panel); padding: 12px 14px; }
+    #debug {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;
+      max-height: 60vh;
+      overflow-y: auto;
+      background: #070b17;
+      border-top: 2px solid var(--blue);
+      padding: 12px max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+      z-index: 10;
+    }
+    #debug[hidden] { display: none; }
+    #debug .tests { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    #debug .tests button { background: var(--panel); padding: 10px 12px; font-size: 14px; }
+    #target { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+    #log { margin: 0; font: 12px/1.4 ui-monospace, Menlo, monospace; color: #b8c4e6; white-space: pre-wrap; user-select: text; -webkit-user-select: text; }
+
     @media (orientation: portrait) {
       main { flex-direction: column; }
       #left { flex: none; padding: 8px 0; }
@@ -101,6 +118,7 @@
     <span class="spacer"></span>
     <label id="slowLabel"><input type="checkbox" id="slow"> 🐢 Lento</label>
     <button id="stop">STOP</button>
+    <button id="debugToggle" aria-label="Diagnóstico">🔧</button>
   </header>
   <p id="message" hidden></p>
   <main>
@@ -115,6 +133,20 @@
       </details>
     </div>
   </main>
+  <section id="debug" hidden>
+    <div class="tests">
+      <button data-port="0" data-value="FF">Puerto 0 ▶</button>
+      <button data-port="0" data-value="07">Puerto 0 ◀</button>
+      <button data-port="1" data-value="FF">Puerto 1 ▶</button>
+      <button data-port="1" data-value="07">Puerto 1 ◀</button>
+      <button data-port="2" data-value="FF">Puerto 2 ▶</button>
+      <button data-port="2" data-value="07">Puerto 2 ◀</button>
+      <button data-port="3" data-value="FF">Puerto 3 ▶</button>
+      <button data-port="3" data-value="07">Puerto 3 ◀</button>
+    </div>
+    <div id="target">giro 0 · avance 0</div>
+    <pre id="log"></pre>
+  </section>
   <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -1,10 +1,12 @@
 import {
   SERVICE_UUID, CONTROL_UUID, DEVICE_NAME, SOUNDS, UNKNOWN_SOUND_IDS,
-  steerValue, driveValue, steerPacket, drivePacket, soundPacket, describeReply,
+  steerValue, driveValue, steerPacket, drivePacket, soundPacket, motorPacket, describeReply, toHex,
 } from './protocol.js';
 
 // Pausa entre comandos para no saturar el hub (el original usaba ~100–150 ms).
 const GAP_MS = 80;
+// Mientras se maneja, reenvía la velocidad aunque no cambie.
+const KEEPALIVE_MS = 300;
 const DEADZONE = 0.15;
 const SLOW_SPEED = 0.6;
 const RECONNECT_TRIES = 5;
@@ -21,7 +23,9 @@ let slowMode = false;
 // Lo que el joystick pide y lo último que el hub confirmó (valores crudos).
 const target = { steer: 0, drive: 0 };
 const sent = { steer: null, drive: null };
-const soundQueue = [];
+let lastDriveAt = 0;
+// Comandos sueltos (sonidos y pruebas), se mandan antes que el joystick.
+const queue = [];
 let steerTurn = true;
 
 // ---------- Bluetooth ----------
@@ -60,7 +64,9 @@ async function openConnection() {
     await characteristic.startNotifications();
     characteristic.addEventListener('characteristicvaluechanged', (e) => {
       const v = e.target.value;
-      $('#reply').textContent = describeReply(new Uint8Array(v.buffer, v.byteOffset, v.byteLength));
+      const reply = describeReply(new Uint8Array(v.buffer, v.byteOffset, v.byteLength));
+      $('#reply').textContent = reply;
+      log(`← ${reply}`);
     });
   } catch {
     // Las respuestas son solo informativas.
@@ -69,12 +75,14 @@ async function openConnection() {
   stop();
   setStatus('connected');
   showMessage('');
-  soundQueue.push(0x0e);
+  log('conectado');
+  queue.push(soundPacket(0x0e));
 }
 
 async function onDisconnected() {
   characteristic = null;
   setStatus('disconnected');
+  log('desconectado');
   if (userDisconnected) return;
   for (let i = 0; i < RECONNECT_TRIES && !userDisconnected; i++) {
     await sleep(1000);
@@ -98,19 +106,21 @@ function write(pkt) {
   return fn.call(characteristic, pkt);
 }
 
-// Elige el próximo comando: primero frenar, después sonidos, después
-// dirección y avance alternados. Solo manda valores que cambiaron.
+// Elige el próximo comando: primero frenar, después sonidos y pruebas,
+// después dirección y avance alternados. Solo manda valores que cambiaron,
+// salvo el avance, que se repite cada KEEPALIVE_MS mientras se maneja.
 function nextCommand() {
   const steer = steerValue(target.steer);
   const drive = driveValue(target.drive);
   if (drive === driveValue(0) && sent.drive !== drive) return ['drive', drive, drivePacket(0)];
-  if (soundQueue.length) return [null, null, soundPacket(soundQueue.shift())];
+  if (queue.length) return [null, null, queue.shift()];
   const order = steerTurn ? ['steer', 'drive'] : ['drive', 'steer'];
   steerTurn = !steerTurn;
   for (const key of order) {
     if (key === 'steer' && sent.steer !== steer) return ['steer', steer, steerPacket(target.steer)];
     if (key === 'drive' && sent.drive !== drive) return ['drive', drive, drivePacket(target.drive)];
   }
+  if (target.drive !== 0 && Date.now() - lastDriveAt > KEEPALIVE_MS) return ['drive', drive, drivePacket(target.drive)];
   return null;
 }
 
@@ -122,8 +132,10 @@ async function pump() {
       try {
         await write(pkt);
         if (key) sent[key] = value;
-      } catch {
-        // se reintenta en la próxima vuelta
+        if (key === 'drive') lastDriveAt = Date.now();
+        log(`→ ${toHex(pkt)}`);
+      } catch (e) {
+        log(`✗ ${toHex(pkt)} ${e.message}`); // se reintenta en la próxima vuelta
       }
     }
     await sleep(GAP_MS);
@@ -139,8 +151,8 @@ function stop() {
 
 function playSound(id) {
   if (!characteristic) return;
-  soundQueue.length = 0; // si tocan muchos botones, suena el último
-  soundQueue.push(id);
+  queue.length = 0; // si tocan muchos botones, suena el último
+  queue.push(soundPacket(id));
 }
 
 // Mapeo de interface06.html: hacia adelante (o de costado) gira según el
@@ -173,12 +185,14 @@ function setupJoystick() {
     if (d > 1) { dx /= d; dy /= d; }
     knob.style.transform = `translate(${dx * radius * 0.6}px, ${dy * radius * 0.6}px)`;
     setFromJoystick(dx, -dy);
+    $('#target').textContent = `giro ${target.steer.toFixed(2)} · avance ${target.drive.toFixed(2)}`;
   };
   const release = () => {
     pointerId = null;
     knob.style.transition = 'transform .2s';
     knob.style.transform = '';
     stop();
+    $('#target').textContent = 'giro 0 · avance 0';
   };
 
   base.addEventListener('pointerdown', (e) => {
@@ -212,6 +226,31 @@ function makeSoundButtons() {
   }
 }
 
+// ---------- Diagnóstico ----------
+
+const logLines = [];
+function log(line) {
+  const t = new Date().toLocaleTimeString('es', { hour12: false });
+  logLines.unshift(`${t} ${line}`);
+  logLines.length = Math.min(logLines.length, 40);
+  $('#log').textContent = logLines.join('\n');
+}
+
+// Mueve un puerto de motor a fondo durante 1 s y lo vuelve a 0x89.
+function testPort(port, value) {
+  if (!characteristic) return log('primero conectá');
+  log(`prueba puerto ${port} = ${value.toString(16).toUpperCase()}`);
+  queue.push(motorPacket(port, value));
+  setTimeout(() => queue.push(motorPacket(port, 0x89)), 1000);
+}
+
+function setupDebug() {
+  $('#debugToggle').addEventListener('click', () => { $('#debug').hidden = !$('#debug').hidden; });
+  for (const b of document.querySelectorAll('[data-port]')) {
+    b.addEventListener('click', () => testPort(Number(b.dataset.port), parseInt(b.dataset.value, 16)));
+  }
+}
+
 // ---------- Interfaz ----------
 
 function setStatus(status) {
@@ -242,7 +281,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) stop();
   else keepScreenOn();
 });
-window.addEventListener('blur', stop);
+window.addEventListener('pagehide', stop);
 
 if (!navigator.bluetooth) {
   showMessage('Este navegador no tiene Bluetooth. En iPhone abrí esta página con la app Bluefy.');
@@ -250,6 +289,7 @@ if (!navigator.bluetooth) {
 
 setStatus('disconnected');
 setupJoystick();
+setupDebug();
 makeSoundButtons();
 keepScreenOn();
 pump();
