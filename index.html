@@ -2,6 +2,8 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Cache-Control" content="no-cache">
+  <!-- Al publicar cambios, subir la versión en app.js?v=, protocol.js?v= y #version. -->
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#0b1020">
@@ -44,6 +46,7 @@
     #status::before { content: ''; width: 12px; height: 12px; border-radius: 50%; background: var(--red); }
     [data-status=connecting] #status::before { background: var(--amber); }
     [data-status=connected] #status::before { background: var(--green); }
+    #version { color: var(--muted); font-size: 11px; font-weight: 400; opacity: .6; }
     #reply { color: var(--muted); font-size: 12px; font-weight: 400; }
     .spacer { flex: 1; }
     #slowLabel { display: flex; align-items: center; gap: 6px; background: var(--panel); padding: 10px 14px; border-radius: 14px; }
@@ -115,6 +118,7 @@
     <button id="connect">Conectar</button>
     <span id="status">Desconectado</span>
     <span id="reply"></span>
+    <span id="version">v3</span>
     <span class="spacer"></span>
     <label id="slowLabel"><input type="checkbox" id="slow"> 🐢 Lento</label>
     <button id="stop">STOP</button>
@@ -147,6 +151,6 @@
     <div id="target">giro 0 · avance 0</div>
     <pre id="log"></pre>
   </section>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=3"></script>
 </body>
 </html>
