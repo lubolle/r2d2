@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0b1020">
+  <title>Control R2-D2</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #151c33;
+      --text: #f2f4fb;
+      --muted: #8f9bbd;
+      --blue: #2f6fe4;
+      --red: #e0393e;
+      --green: #2fbf71;
+      --amber: #f0b429;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font: 600 16px/1.2 system-ui, -apple-system, sans-serif;
+      overscroll-behavior: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+      padding: max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+      gap: 10px;
+    }
+    button, label { touch-action: manipulation; font: inherit; color: inherit; }
+    button { border: 0; border-radius: 14px; cursor: pointer; }
+    button:active { transform: scale(.96); }
+
+    header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    #connect { background: var(--blue); padding: 12px 18px; }
+    #status { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+    #status::before { content: ''; width: 12px; height: 12px; border-radius: 50%; background: var(--red); }
+    [data-status=connecting] #status::before { background: var(--amber); }
+    [data-status=connected] #status::before { background: var(--green); }
+    #reply { color: var(--muted); font-size: 12px; font-weight: 400; }
+    .spacer { flex: 1; }
+    #slowLabel { display: flex; align-items: center; gap: 6px; background: var(--panel); padding: 10px 14px; border-radius: 14px; }
+    #slow { width: 20px; height: 20px; }
+    #stop { background: var(--red); padding: 12px 22px; font-size: 18px; letter-spacing: .05em; }
+    #message { background: #3a2a10; color: #ffd98a; padding: 10px 14px; border-radius: 12px; margin: 0; }
+
+    main { flex: 1; min-height: 0; display: flex; gap: 14px; }
+    #left { flex: 1; display: flex; align-items: center; justify-content: center; }
+    #joystick {
+      position: relative;
+      width: min(80vmin, 340px);
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: url(images/joystick-base.png) center / contain no-repeat;
+      touch-action: none;
+    }
+    #knob {
+      position: absolute;
+      inset: 25%;
+      background: url(images/joystick-red.png) center / contain no-repeat;
+      pointer-events: none;
+    }
+    [data-status=disconnected] #joystick { opacity: .5; }
+
+    #right { flex: 1; min-width: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    #sounds, #mystery { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+    .sound {
+      background: var(--panel);
+      padding: 10px 6px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      font-size: 14px;
+    }
+    .sound .emoji { font-size: 28px; }
+    .sound.small { font-size: 14px; padding: 12px 6px; }
+    [data-status=disconnected] .sound { opacity: .5; }
+    details { margin-top: 12px; color: var(--muted); }
+    summary { padding: 8px 0; }
+
+    @media (orientation: portrait) {
+      main { flex-direction: column; }
+      #left { flex: none; padding: 8px 0; }
+      #joystick { width: min(70vw, 320px); }
+    }
+  </style>
+</head>
+<body data-status="disconnected">
+  <header>
+    <button id="connect">Conectar</button>
+    <span id="status">Desconectado</span>
+    <span id="reply"></span>
+    <span class="spacer"></span>
+    <label id="slowLabel"><input type="checkbox" id="slow"> 🐢 Lento</label>
+    <button id="stop">STOP</button>
+  </header>
+  <p id="message" hidden></p>
+  <main>
+    <div id="left">
+      <div id="joystick"><div id="knob"></div></div>
+    </div>
+    <div id="right">
+      <div id="sounds"></div>
+      <details>
+        <summary>Sonidos misteriosos</summary>
+        <div id="mystery"></div>
+      </details>
+    </div>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
