@@ -1,7 +1,7 @@
 import {
-  SERVICE_UUID, CONTROL_UUID, DEVICE_NAME, SOUNDS, UNKNOWN_SOUND_IDS,
+  SERVICE_UUID, CONTROL_UUID, DEVICE_NAME, SOUNDS, UNKNOWN_SOUND_IDS, PORT_STEER, PORT_DRIVE,
   steerValue, driveValue, steerPacket, drivePacket, soundPacket, motorPacket, describeReply, toHex,
-} from './protocol.js?v=3';
+} from './protocol.js?v=4';
 
 // Pausa entre comandos para no saturar el hub (el original usaba ~100–150 ms).
 const GAP_MS = 80;
@@ -24,6 +24,13 @@ let slowMode = false;
 const target = { steer: 0, drive: 0 };
 const sent = { steer: null, drive: null };
 let lastDriveAt = 0;
+// Salidas del hub para cada motor; se eligen en el panel 🔧 y se recuerdan.
+const ports = { steer: PORT_STEER, drive: PORT_DRIVE };
+try {
+  Object.assign(ports, JSON.parse(localStorage.getItem('ports')) || {});
+} catch {
+  // sin almacenamiento: quedan los valores por defecto
+}
 // Comandos sueltos (sonidos y pruebas), se mandan antes que el joystick.
 const queue = [];
 let steerTurn = true;
@@ -112,15 +119,15 @@ function write(pkt) {
 function nextCommand() {
   const steer = steerValue(target.steer);
   const drive = driveValue(target.drive);
-  if (drive === driveValue(0) && sent.drive !== drive) return ['drive', drive, drivePacket(0)];
+  if (drive === driveValue(0) && sent.drive !== drive) return ['drive', drive, drivePacket(0, ports.drive)];
   if (queue.length) return [null, null, queue.shift()];
   const order = steerTurn ? ['steer', 'drive'] : ['drive', 'steer'];
   steerTurn = !steerTurn;
   for (const key of order) {
-    if (key === 'steer' && sent.steer !== steer) return ['steer', steer, steerPacket(target.steer)];
-    if (key === 'drive' && sent.drive !== drive) return ['drive', drive, drivePacket(target.drive)];
+    if (key === 'steer' && sent.steer !== steer) return ['steer', steer, steerPacket(target.steer, ports.steer)];
+    if (key === 'drive' && sent.drive !== drive) return ['drive', drive, drivePacket(target.drive, ports.drive)];
   }
-  if (target.drive !== 0 && Date.now() - lastDriveAt > KEEPALIVE_MS) return ['drive', drive, drivePacket(target.drive)];
+  if (target.drive !== 0 && Date.now() - lastDriveAt > KEEPALIVE_MS) return ['drive', drive, drivePacket(target.drive, ports.drive)];
   return null;
 }
 
@@ -246,8 +253,31 @@ function testPort(port, value) {
 
 function setupDebug() {
   $('#debugToggle').addEventListener('click', () => { $('#debug').hidden = !$('#debug').hidden; });
-  for (const b of document.querySelectorAll('[data-port]')) {
-    b.addEventListener('click', () => testPort(Number(b.dataset.port), parseInt(b.dataset.value, 16)));
+
+  const tests = $('#tests');
+  for (let port = 0; port < 8; port++) {
+    for (const [label, value] of [['▶', 0xff], ['◀', 0x07]]) {
+      const b = document.createElement('button');
+      b.textContent = `${port} ${label}`;
+      b.addEventListener('click', () => testPort(port, value));
+      tests.append(b);
+    }
+  }
+
+  for (const key of ['steer', 'drive']) {
+    const select = $(`#port-${key}`);
+    for (let port = 0; port < 8; port++) select.add(new Option(String(port), String(port)));
+    select.value = String(ports[key]);
+    select.addEventListener('change', () => {
+      ports[key] = Number(select.value);
+      sent[key] = null;
+      try {
+        localStorage.setItem('ports', JSON.stringify(ports));
+      } catch {
+        // no se recuerda, pero funciona igual
+      }
+      log(`${key === 'steer' ? 'dirección' : 'avance'} → puerto ${ports[key]}`);
+    });
   }
 }
 

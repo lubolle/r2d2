@@ -8,8 +8,10 @@ export const DEVICE_NAME = 'w32 ControlHub';
 
 const CMD_MOTOR = 0x14;
 const CMD_SOUND = 0x1e;
-const PORT_STEER = 0x01;
-const PORT_DRIVE = 0x02;
+// En el Space Rover la dirección va en el 1 y el avance en el 2; en el R2
+// la dirección (servo) responde en el 0. La app permite cambiarlos.
+export const PORT_STEER = 0x00;
+export const PORT_DRIVE = 0x02;
 
 // Valores de motor observados en las capturas.
 const STEER_LEFT = 0xfc;
@@ -53,8 +55,8 @@ export function driveValue(t) {
 }
 
 export const motorPacket = (port, value) => packet(CMD_MOTOR, [port, value]);
-export const steerPacket = (s) => motorPacket(PORT_STEER, steerValue(s));
-export const drivePacket = (t) => motorPacket(PORT_DRIVE, driveValue(t));
+export const steerPacket = (s, port = PORT_STEER) => motorPacket(port, steerValue(s));
+export const drivePacket = (t, port = PORT_DRIVE) => motorPacket(port, driveValue(t));
 export const soundPacket = (id) => packet(CMD_SOUND, [id]);
 
 export const toHex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('').toUpperCase();
