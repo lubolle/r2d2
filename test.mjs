@@ -5,8 +5,8 @@ import { readFileSync } from 'node:fs';
 import {
   message, parseMessage, describeReply, toHex, steerValue, driveValue, steerPacket, drivePacket, soundPacket,
   CMD, USER_SFX, SFX_RATE, eraseUserSfxPacket, beginSfxPacket, sfxChunkPacket,
-} from './protocol.js?v=9';
-import { resample, trimSilence, toHubBytes } from './audio.js?v=9';
+} from './protocol.js?v=10';
+import { resample, trimSilence, toHubBytes } from './audio.js?v=10';
 
 const root = new URL('../', import.meta.url);
 const files = ['360 deg', 'drive motor', 'turn signals', 'drivetests', 'interface06.html'];
@@ -52,7 +52,7 @@ const parsed = parseMessage(chunk);
 eq(parsed.cmd === CMD.SEND_USER_SFX && parsed.data.length === 260, true, 'pedazo de audio: se vuelve a leer igual');
 
 // Conversión de audio.
-const tone = Float32Array.from({ length: 44100 * 6 }, (_, i) => (i < 4410 ? 0 : 0.5 * Math.sin(i / 10)));
+const tone = Float32Array.from({ length: 44100 * 6 }, (_, i) => (i < 44100 ? 0 : Math.min(1, (i - 44100) / 2205) * 0.5 * Math.sin(i / 10)));
 const mono = resample([tone], 44100);
 eq(mono.length, SFX_RATE * 6, 'resample a 11025 Hz');
 eq(trimSilence(mono).length < mono.length, true, 'saca el silencio inicial');

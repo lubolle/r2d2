@@ -1,6 +1,6 @@
 // Conversión de audio al formato de los sonidos de usuario del hub:
 // PCM de 8 bits sin signo (centro 127), mono, 11025 Hz, hasta 4 s.
-import { SFX_RATE, SFX_MAX_SECONDS, clamp } from './protocol.js?v=9';
+import { SFX_RATE, SFX_MAX_SECONDS, clamp } from './protocol.js?v=10';
 
 // Mezcla a mono y baja la frecuencia promediando cada ventana (filtro anti-alias simple).
 export function resample(channels, srcRate, dstRate = SFX_RATE) {
@@ -17,8 +17,9 @@ export function resample(channels, srcRate, dstRate = SFX_RATE) {
   return out;
 }
 
-// Saca el silencio del principio y del final.
-export function trimSilence(samples, threshold = 0.03) {
+// Saca el silencio del principio y del final, dejando un margen para no
+// comerse el comienzo o el final suave de una palabra.
+export function trimSilence(samples, threshold = 0.015, margin = Math.round(SFX_RATE * 0.15)) {
   let peak = 0;
   for (const s of samples) peak = Math.max(peak, Math.abs(s));
   const limit = peak * threshold;
@@ -26,7 +27,7 @@ export function trimSilence(samples, threshold = 0.03) {
   let end = samples.length;
   while (start < end && Math.abs(samples[start]) <= limit) start++;
   while (end > start && Math.abs(samples[end - 1]) <= limit) end--;
-  return samples.subarray(start, end);
+  return samples.subarray(Math.max(0, start - margin), Math.min(samples.length, end + margin));
 }
 
 // Mismo procesamiento que la app oficial (RecordControl.processAudio):

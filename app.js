@@ -1,10 +1,10 @@
 import {
   SERVICE_UUID, CONTROL_UUID, DEVICE_NAME, SOUNDS, UNKNOWN_SOUND_IDS,
-  CMD, USER_SFX, SFX_RATE, SFX_CHUNK, BLE_WRITE_SIZE,
+  CMD, USER_SFX, SFX_RATE, SFX_MAX_SECONDS, SFX_CHUNK, BLE_WRITE_SIZE,
   steerValue, driveValue, steerPacket, drivePacket, soundPacket, motorPacket, describeReply, toHex,
   parseMessage, ackError, eraseUserSfxPacket, beginSfxPacket, sfxChunkPacket,
-} from './protocol.js?v=9';
-import { decodedToHubBytes, previewHubBytes, startRecording } from './audio.js?v=9';
+} from './protocol.js?v=10';
+import { decodedToHubBytes, previewHubBytes, startRecording } from './audio.js?v=10';
 
 // Pausa entre comandos para no saturar el hub (el original usaba ~100–150 ms).
 const GAP_MS = 80;
@@ -278,26 +278,37 @@ function decodeAudio(arrayBuffer) {
 function setupCustomSound() {
   $('#customPlay').addEventListener('click', () => playSound(USER_SFX));
 
+  // Tocar para empezar y para parar: mantener apretado se corta en iPhone
+  // (si el dedo se mueve un poco, iOS lo toma como scroll y cancela el toque).
   const rec = $('#customRecord');
   if (!navigator.mediaDevices?.getUserMedia) rec.hidden = true;
-  rec.addEventListener('pointerdown', async (e) => {
-    rec.setPointerCapture(e.pointerId);
-    try {
-      stopRecording = await startRecording(getAudioCtx());
-      rec.classList.add('recording');
-      showCustomStatus('Grabando… (soltá para terminar, máximo 4 s)');
-    } catch {
-      showCustomStatus('No pude usar el micrófono. Probá con "Elegir audio".');
-    }
-  });
+  let timer = null;
   const finish = () => {
     if (!stopRecording) return;
+    clearInterval(timer);
     rec.classList.remove('recording');
+    rec.textContent = '🎙️ Grabar';
     setPending(stopRecording(), 'Grabación');
     stopRecording = null;
   };
-  rec.addEventListener('pointerup', finish);
-  rec.addEventListener('pointercancel', finish);
+  rec.addEventListener('click', async () => {
+    if (stopRecording) return finish();
+    try {
+      stopRecording = await startRecording(getAudioCtx());
+    } catch {
+      return showCustomStatus('No pude usar el micrófono. Probá con "Elegir audio".');
+    }
+    rec.classList.add('recording');
+    const started = Date.now();
+    const tick = () => {
+      const left = SFX_MAX_SECONDS - (Date.now() - started) / 1000;
+      if (left <= 0) return finish();
+      rec.textContent = `⏹️ Parar (${left.toFixed(1)} s)`;
+    };
+    tick();
+    timer = setInterval(tick, 100);
+    showCustomStatus('Grabando… tocá de nuevo para terminar.');
+  });
 
   $('#customFile').addEventListener('change', async (e) => {
     const file = e.target.files[0];
