@@ -23,9 +23,9 @@ for (const f of files) {
 
 const eq = (actual, expected, label) => { total++; if (actual !== expected) fail(`${label}: ${actual} != ${expected}`); };
 eq(toHex(soundPacket(0x0e)), '1E010E003E', 'sonido arranque');
-eq(toHex(drivePacket(0)), '140202897BCC', 'stop');
-eq(toHex(drivePacket(1)), '140202FF659D', 'adelante a fondo');
-eq(toHex(drivePacket(-1)), '140202070B8A', 'atrás a fondo');
+eq(toHex(drivePacket(0, 2)), '140202897BCC', 'stop');
+eq(toHex(drivePacket(1, 2)), '140202FF659D', 'adelante a fondo');
+eq(toHex(drivePacket(-1, 2)), '140202070B8A', 'atrás a fondo');
 eq(toHex(steerPacket(-1, 1)), '140201FC00AD', 'todo a la izquierda');
 eq(toHex(steerPacket(0, 1)), '14020196CD41', 'recto');
 eq(toHex(steerPacket(1, 1)), '140201002E3E', 'todo a la derecha');

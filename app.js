@@ -1,7 +1,7 @@
 import {
   SERVICE_UUID, CONTROL_UUID, DEVICE_NAME, SOUNDS, UNKNOWN_SOUND_IDS, PORT_STEER, PORT_DRIVE,
   steerValue, driveValue, steerPacket, drivePacket, soundPacket, motorPacket, describeReply, toHex,
-} from './protocol.js?v=4';
+} from './protocol.js?v=5';
 
 // Pausa entre comandos para no saturar el hub (el original usaba ~100–150 ms).
 const GAP_MS = 80;

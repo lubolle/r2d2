@@ -8,10 +8,10 @@ export const DEVICE_NAME = 'w32 ControlHub';
 
 const CMD_MOTOR = 0x14;
 const CMD_SOUND = 0x1e;
-// En el Space Rover la dirección va en el 1 y el avance en el 2; en el R2
-// la dirección (servo) responde en el 0. La app permite cambiarlos.
+// En el Space Rover la dirección va en el 1 y el avance en el 2; en el R2-D2
+// la dirección (servo) va en el 0 y el avance (motor DC en VAR) en el 1.
 export const PORT_STEER = 0x00;
-export const PORT_DRIVE = 0x02;
+export const PORT_DRIVE = 0x01;
 
 // Valores de motor observados en las capturas.
 const STEER_LEFT = 0xfc;
