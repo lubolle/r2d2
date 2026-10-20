@@ -103,8 +103,6 @@
     #debug[hidden] { display: none; }
     #debug .tests { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
     #debug .tests button { background: var(--panel); padding: 10px 12px; font-size: 14px; }
-    #debug .ports { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 10px; }
-    #debug select { font: inherit; font-size: 16px; padding: 4px 8px; border-radius: 8px; }
     #debug .hint { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
     #target { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
     #log { margin: 0; font: 12px/1.4 ui-monospace, Menlo, monospace; color: #b8c4e6; white-space: pre-wrap; user-select: text; -webkit-user-select: text; }
@@ -121,7 +119,7 @@
     <button id="connect">Conectar</button>
     <span id="status">Desconectado</span>
     <span id="reply"></span>
-    <span id="version">v5</span>
+    <span id="version">v6</span>
     <span class="spacer"></span>
     <label id="slowLabel"><input type="checkbox" id="slow"> 🐢 Lento</label>
     <button id="stop">STOP</button>
@@ -141,15 +139,11 @@
     </div>
   </main>
   <section id="debug" hidden>
-    <div class="ports">
-      <label>Dirección: puerto <select id="port-steer"></select></label>
-      <label>Avance: puerto <select id="port-drive"></select></label>
-    </div>
     <div class="hint">Probar puerto (1 s):</div>
     <div class="tests" id="tests"></div>
     <div id="target">giro 0 · avance 0</div>
     <pre id="log"></pre>
   </section>
-  <script type="module" src="app.js?v=5"></script>
+  <script type="module" src="app.js?v=6"></script>
 </body>
 </html>
