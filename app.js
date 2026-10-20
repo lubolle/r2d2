@@ -3,8 +3,8 @@ import {
   CMD, USER_SFX, SFX_RATE, SFX_CHUNK, BLE_WRITE_SIZE,
   steerValue, driveValue, steerPacket, drivePacket, soundPacket, motorPacket, describeReply, toHex,
   parseMessage, ackError, eraseUserSfxPacket, beginSfxPacket, sfxChunkPacket,
-} from './protocol.js?v=7';
-import { decodedToHubBytes, previewHubBytes, startRecording } from './audio.js?v=7';
+} from './protocol.js?v=8';
+import { decodedToHubBytes, previewHubBytes, startRecording } from './audio.js?v=8';
 
 // Pausa entre comandos para no saturar el hub (el original usaba ~100–150 ms).
 const GAP_MS = 80;
@@ -160,13 +160,12 @@ async function pump() {
 
 // ---------- Sonido propio ----------
 
-// Manda un mensaje en escrituras de 20 bytes (como la app oficial).
+// Manda un mensaje en escrituras de 20 bytes (como la app oficial). Cada una
+// espera confirmación: sin respuesta, en iPhone se pierden pedazos y el hub
+// contesta error 259 (mensaje corrupto).
 async function writeChunked(pkt) {
   for (let i = 0; i < pkt.length; i += BLE_WRITE_SIZE) {
-    const piece = pkt.slice(i, i + BLE_WRITE_SIZE);
-    const last = i + BLE_WRITE_SIZE >= pkt.length;
-    const fast = !last && characteristic.writeValueWithoutResponse;
-    await (fast ? characteristic.writeValueWithoutResponse(piece) : write(piece));
+    await write(pkt.slice(i, i + BLE_WRITE_SIZE));
   }
 }
 
@@ -188,10 +187,13 @@ async function uploadUserSfx(bytes, onProgress) {
   try {
     await inflight?.catch(() => {});
     await request(drivePacket(0), 1500).catch(() => {});
+    log('sonido propio 1/3: borrando el anterior');
     const erased = await request(eraseUserSfxPacket(), 20000);
     if (!isOk(erased)) log(`borrar: respuesta cmd ${erased?.cmd}, error ${ackError(erased)}`);
+    log(`sonido propio 2/3: anunciando ${bytes.length} bytes`);
     const begin = await request(beginSfxPacket(bytes.length, 'sound0'), 3000);
-    if (begin?.cmd !== CMD.BEGIN_NEW_SFX) throw new Error(`el R2 no aceptó el sonido (error ${ackError(begin)})`);
+    if (begin?.cmd !== CMD.BEGIN_NEW_SFX) throw new Error(`paso 2/3, el R2 no aceptó el sonido (error ${ackError(begin)})`);
+    log('sonido propio 3/3: mandando el audio');
     for (let offset = 0; offset < bytes.length; offset += SFX_CHUNK) {
       const chunk = bytes.subarray(offset, offset + SFX_CHUNK);
       for (let attempt = 1; ; attempt++) {
@@ -200,8 +202,9 @@ async function uploadUserSfx(bytes, onProgress) {
           if (isOk(reply)) break;
           throw new Error(`error ${ackError(reply)}`);
         } catch (e) {
-          if (attempt >= 4) throw e;
+          if (attempt >= 4) throw new Error(`paso 3/3 en el byte ${offset}: ${e.message}`);
           log(`reintento en ${offset}: ${e.message}`);
+          await sleep(500); // deja que el hub descarte lo que le quedó a medias
         }
       }
       onProgress((offset + chunk.length) / bytes.length);
