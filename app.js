@@ -1,7 +1,10 @@
 import {
   SERVICE_UUID, CONTROL_UUID, DEVICE_NAME, SOUNDS, UNKNOWN_SOUND_IDS,
+  CMD, USER_SFX, SFX_RATE, SFX_CHUNK, BLE_WRITE_SIZE,
   steerValue, driveValue, steerPacket, drivePacket, soundPacket, motorPacket, describeReply, toHex,
-} from './protocol.js?v=6';
+  parseMessage, ackError, eraseUserSfxPacket, beginSfxPacket, sfxChunkPacket,
+} from './protocol.js?v=7';
+import { decodedToHubBytes, previewHubBytes, startRecording } from './audio.js?v=7';
 
 // Pausa entre comandos para no saturar el hub (el original usaba ~100–150 ms).
 const GAP_MS = 80;
@@ -32,6 +35,11 @@ try {
 // Comandos sueltos (sonidos y pruebas), se mandan antes que el joystick.
 const queue = [];
 let steerTurn = true;
+// Mientras se sube un sonido, el loop de envío se pausa y las respuestas
+// del hub van a quien las esté esperando.
+let busy = false;
+let inflight = null;
+let waiter = null;
 
 // ---------- Bluetooth ----------
 
@@ -69,9 +77,11 @@ async function openConnection() {
     await characteristic.startNotifications();
     characteristic.addEventListener('characteristicvaluechanged', (e) => {
       const v = e.target.value;
-      const reply = describeReply(new Uint8Array(v.buffer, v.byteOffset, v.byteLength));
+      const bytes = new Uint8Array(v.buffer, v.byteOffset, v.byteLength).slice();
+      const reply = describeReply(bytes);
       $('#reply').textContent = reply;
-      log(`← ${reply}`);
+      if (waiter) waiter(parseMessage(bytes));
+      else log(`← ${reply}`);
     });
   } catch {
     // Las respuestas son solo informativas.
@@ -131,11 +141,12 @@ function nextCommand() {
 
 async function pump() {
   for (;;) {
-    const cmd = characteristic && nextCommand();
+    const cmd = characteristic && !busy && nextCommand();
     if (cmd) {
       const [key, value, pkt] = cmd;
       try {
-        await write(pkt);
+        inflight = write(pkt);
+        await inflight;
         if (key) sent[key] = value;
         if (key === 'drive') lastDriveAt = Date.now();
         log(`→ ${toHex(pkt)}`);
@@ -145,6 +156,141 @@ async function pump() {
     }
     await sleep(GAP_MS);
   }
+}
+
+// ---------- Sonido propio ----------
+
+// Manda un mensaje en escrituras de 20 bytes (como la app oficial).
+async function writeChunked(pkt) {
+  for (let i = 0; i < pkt.length; i += BLE_WRITE_SIZE) {
+    const piece = pkt.slice(i, i + BLE_WRITE_SIZE);
+    const last = i + BLE_WRITE_SIZE >= pkt.length;
+    const fast = !last && characteristic.writeValueWithoutResponse;
+    await (fast ? characteristic.writeValueWithoutResponse(piece) : write(piece));
+  }
+}
+
+// Manda un mensaje y espera la respuesta del hub.
+function request(pkt, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { waiter = null; reject(new Error('el R2 no respondió')); }, timeoutMs);
+    waiter = (msg) => { clearTimeout(timer); waiter = null; resolve(msg); };
+    writeChunked(pkt).catch((e) => { clearTimeout(timer); waiter = null; reject(e); });
+  });
+}
+
+const isOk = (msg) => msg?.cmd === CMD.ACK && ackError(msg) === 0;
+
+// Misma secuencia que la app oficial: borrar sonidos de usuario, anunciar el
+// nuevo y mandarlo en pedazos de 256 bytes (reintentando los que fallen).
+async function uploadUserSfx(bytes, onProgress) {
+  busy = true;
+  try {
+    await inflight?.catch(() => {});
+    await request(drivePacket(0), 1500).catch(() => {});
+    const erased = await request(eraseUserSfxPacket(), 20000);
+    if (!isOk(erased)) log(`borrar: respuesta cmd ${erased?.cmd}, error ${ackError(erased)}`);
+    const begin = await request(beginSfxPacket(bytes.length, 'sound0'), 3000);
+    if (begin?.cmd !== CMD.BEGIN_NEW_SFX) throw new Error(`el R2 no aceptó el sonido (error ${ackError(begin)})`);
+    for (let offset = 0; offset < bytes.length; offset += SFX_CHUNK) {
+      const chunk = bytes.subarray(offset, offset + SFX_CHUNK);
+      for (let attempt = 1; ; attempt++) {
+        try {
+          const reply = await request(sfxChunkPacket(offset, chunk), 3000);
+          if (isOk(reply)) break;
+          throw new Error(`error ${ackError(reply)}`);
+        } catch (e) {
+          if (attempt >= 4) throw e;
+          log(`reintento en ${offset}: ${e.message}`);
+        }
+      }
+      onProgress((offset + chunk.length) / bytes.length);
+    }
+  } finally {
+    busy = false;
+    sent.steer = sent.drive = null;
+  }
+}
+
+let audioCtx = null;
+const getAudioCtx = () => (audioCtx ??= new (window.AudioContext || window.webkitAudioContext)());
+let pendingSfx = null;
+let stopRecording = null;
+
+function setPending(bytes, label) {
+  if (!bytes.length) return showCustomStatus('No se escuchó nada. Probá de nuevo.');
+  pendingSfx = bytes;
+  $('#customReady').hidden = false;
+  showCustomStatus(`${label}: ${(bytes.length / SFX_RATE).toFixed(1)} s listos para mandar.`);
+}
+
+function showCustomStatus(text) {
+  $('#customStatus').textContent = text;
+}
+
+function decodeAudio(arrayBuffer) {
+  return new Promise((resolve, reject) => getAudioCtx().decodeAudioData(arrayBuffer, resolve, reject));
+}
+
+function setupCustomSound() {
+  $('#customPlay').addEventListener('click', () => playSound(USER_SFX));
+
+  const rec = $('#customRecord');
+  if (!navigator.mediaDevices?.getUserMedia) rec.hidden = true;
+  rec.addEventListener('pointerdown', async (e) => {
+    rec.setPointerCapture(e.pointerId);
+    try {
+      stopRecording = await startRecording(getAudioCtx());
+      rec.classList.add('recording');
+      showCustomStatus('Grabando… (soltá para terminar, máximo 4 s)');
+    } catch {
+      showCustomStatus('No pude usar el micrófono. Probá con "Elegir audio".');
+    }
+  });
+  const finish = () => {
+    if (!stopRecording) return;
+    rec.classList.remove('recording');
+    setPending(stopRecording(), 'Grabación');
+    stopRecording = null;
+  };
+  rec.addEventListener('pointerup', finish);
+  rec.addEventListener('pointercancel', finish);
+
+  $('#customFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      setPending(decodedToHubBytes(await decodeAudio(await file.arrayBuffer())), file.name);
+    } catch {
+      showCustomStatus('No pude leer ese archivo. Probá con un MP3, M4A o WAV.');
+    }
+  });
+
+  $('#customPreview').addEventListener('click', () => pendingSfx && previewHubBytes(getAudioCtx(), pendingSfx));
+
+  $('#customUpload').addEventListener('click', async () => {
+    if (!pendingSfx) return;
+    if (!characteristic) return showCustomStatus('Primero conectá el R2.');
+    const progress = $('#customProgress');
+    progress.hidden = false;
+    $('#customUpload').disabled = true;
+    try {
+      await uploadUserSfx(pendingSfx, (p) => {
+        progress.value = p;
+        showCustomStatus(`Mandando… ${Math.round(p * 100)}%`);
+      });
+      showCustomStatus('¡Listo! Tocá ⭐ para escucharlo en el R2.');
+      log('sonido propio cargado');
+      playSound(USER_SFX);
+    } catch (e) {
+      showCustomStatus(`No se pudo mandar: ${e.message}`);
+      log(`✗ sonido propio: ${e.message}`);
+    } finally {
+      progress.hidden = true;
+      $('#customUpload').disabled = false;
+    }
+  });
 }
 
 // ---------- Controles ----------
@@ -302,6 +448,7 @@ if (!navigator.bluetooth) {
 setStatus('disconnected');
 setupJoystick();
 setupDebug();
+setupCustomSound();
 makeSoundButtons();
 keepScreenOn();
 pump();
