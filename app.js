@@ -3,8 +3,8 @@ import {
   CMD, USER_SFX, SFX_RATE, SFX_CHUNK, BLE_WRITE_SIZE,
   steerValue, driveValue, steerPacket, drivePacket, soundPacket, motorPacket, describeReply, toHex,
   parseMessage, ackError, eraseUserSfxPacket, beginSfxPacket, sfxChunkPacket,
-} from './protocol.js?v=8';
-import { decodedToHubBytes, previewHubBytes, startRecording } from './audio.js?v=8';
+} from './protocol.js?v=9';
+import { decodedToHubBytes, previewHubBytes, startRecording } from './audio.js?v=9';
 
 // Pausa entre comandos para no saturar el hub (el original usaba ~100–150 ms).
 const GAP_MS = 80;
@@ -160,13 +160,40 @@ async function pump() {
 
 // ---------- Sonido propio ----------
 
-// Manda un mensaje en escrituras de 20 bytes (como la app oficial). Cada una
-// espera confirmación: sin respuesta, en iPhone se pierden pedazos y el hub
-// contesta error 259 (mensaje corrupto).
+// Manda un mensaje en escrituras de 20 bytes (como la app oficial). Error 259
+// del hub = mensaje corrupto. Visto en iPhone:
+// - mezclar escrituras con y sin respuesta las desordena (van por colas distintas);
+// - con respuesta en todas, un mensaje largo tarda tanto que a veces llega roto.
+// Por eso: todas sin respuesta y espaciadas; con respuesta solo si eso falla.
+let slowWrites = false;
+const PIECE_GAP_MS = 10;
+
 async function writeChunked(pkt) {
+  const fast = !slowWrites && characteristic.writeValueWithoutResponse;
   for (let i = 0; i < pkt.length; i += BLE_WRITE_SIZE) {
-    await write(pkt.slice(i, i + BLE_WRITE_SIZE));
+    const piece = pkt.slice(i, i + BLE_WRITE_SIZE);
+    if (fast) {
+      await characteristic.writeValueWithoutResponse(piece);
+      await sleep(PIECE_GAP_MS);
+    } else {
+      await write(piece);
+    }
   }
+}
+
+// Después de un error el hub puede quedar a mitad de un mensaje. Manda
+// mensajes cortos (frenar) hasta que vuelva a contestar "ok".
+async function resync() {
+  await sleep(1500);
+  for (let i = 0; i < 8; i++) {
+    try {
+      if (isOk(await request(drivePacket(0), 800))) return;
+    } catch {
+      // sigue probando
+    }
+    await sleep(300);
+  }
+  throw new Error('el R2 no volvió a responder bien');
 }
 
 // Manda un mensaje y espera la respuesta del hub.
@@ -193,22 +220,35 @@ async function uploadUserSfx(bytes, onProgress) {
     log(`sonido propio 2/3: anunciando ${bytes.length} bytes`);
     const begin = await request(beginSfxPacket(bytes.length, 'sound0'), 3000);
     if (begin?.cmd !== CMD.BEGIN_NEW_SFX) throw new Error(`paso 2/3, el R2 no aceptó el sonido (error ${ackError(begin)})`);
-    log('sonido propio 3/3: mandando el audio');
-    for (let offset = 0; offset < bytes.length; offset += SFX_CHUNK) {
-      const chunk = bytes.subarray(offset, offset + SFX_CHUNK);
-      for (let attempt = 1; ; attempt++) {
-        try {
-          const reply = await request(sfxChunkPacket(offset, chunk), 3000);
-          if (isOk(reply)) break;
-          throw new Error(`error ${ackError(reply)}`);
-        } catch (e) {
-          if (attempt >= 4) throw new Error(`paso 3/3 en el byte ${offset}: ${e.message}`);
-          log(`reintento en ${offset}: ${e.message}`);
-          await sleep(500); // deja que el hub descarte lo que le quedó a medias
-        }
+    // Si un pedazo falla: resincroniza, achica los pedazos y, si sigue
+    // fallando, pasa a escrituras con respuesta.
+    slowWrites = false;
+    let size = SFX_CHUNK / 2;
+    let failures = 0;
+    let streak = 0;
+    let offset = 0;
+    const mode = () => `${slowWrites || !characteristic.writeValueWithoutResponse ? 'con' : 'sin'} respuesta, pedazos de ${size}`;
+    log(`sonido propio 3/3: mandando el audio (${mode()})`);
+    while (offset < bytes.length) {
+      const chunk = bytes.subarray(offset, offset + size);
+      try {
+        const reply = await request(sfxChunkPacket(offset, chunk), 3000);
+        if (!isOk(reply)) throw new Error(`error ${ackError(reply)}`);
+        offset += chunk.length;
+        streak = 0;
+        onProgress(offset / bytes.length);
+      } catch (e) {
+        failures++;
+        streak++;
+        log(`✗ byte ${offset}: ${e.message}`);
+        if (failures > 15) throw new Error(`paso 3/3 en el byte ${offset}: ${e.message} (${mode()})`);
+        if (size > 32) size /= 2;
+        if (streak >= 2) slowWrites = true;
+        log(`reintento (${mode()})`);
+        await resync();
       }
-      onProgress((offset + chunk.length) / bytes.length);
     }
+    log(`audio enviado con ${failures} reintentos (${mode()})`);
   } finally {
     busy = false;
     sent.steer = sent.drive = null;

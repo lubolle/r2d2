@@ -1,6 +1,6 @@
 // Conversión de audio al formato de los sonidos de usuario del hub:
 // PCM de 8 bits sin signo (centro 127), mono, 11025 Hz, hasta 4 s.
-import { SFX_RATE, SFX_MAX_SECONDS, clamp } from './protocol.js?v=8';
+import { SFX_RATE, SFX_MAX_SECONDS, clamp } from './protocol.js?v=9';
 
 // Mezcla a mono y baja la frecuencia promediando cada ventana (filtro anti-alias simple).
 export function resample(channels, srcRate, dstRate = SFX_RATE) {
