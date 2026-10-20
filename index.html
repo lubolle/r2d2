@@ -116,6 +116,7 @@
     #custom .tool.primary { background: var(--blue); }
     #custom .tool.recording { background: var(--red); }
     #custom .tool:disabled { opacity: .5; }
+    #customName { flex: 1; min-width: 120px; font: inherit; font-size: 16px; padding: 8px 12px; border-radius: 14px; border: 1px solid #2c3a68; background: #0f1530; color: var(--text); user-select: text; -webkit-user-select: text; }
     #customProgress { width: 100%; margin-top: 8px; }
     #customStatus { color: var(--muted); font-size: 13px; font-weight: 400; margin-top: 6px; }
     #customStatus:empty { display: none; }
@@ -132,7 +133,7 @@
     <button id="connect">Conectar</button>
     <span id="status">Desconectado</span>
     <span id="reply"></span>
-    <span id="version">v10</span>
+    <span id="version">v11</span>
     <span class="spacer"></span>
     <label id="slowLabel"><input type="checkbox" id="slow"> 🐢 Lento</label>
     <button id="stop">STOP</button>
@@ -145,14 +146,18 @@
     </div>
     <div id="right">
       <section id="custom">
+        <div class="row" id="customSounds" hidden></div>
         <div class="row">
-          <button class="sound" id="customPlay"><span class="emoji">⭐</span><span>mi sonido</span></button>
           <button class="tool" id="customRecord">🎙️ Grabar</button>
           <label class="tool">📁 Elegir audio<input type="file" id="customFile" accept="audio/*" hidden></label>
         </div>
         <div class="row" id="customReady" hidden>
           <button class="tool" id="customPreview">👂 Escuchar acá</button>
-          <button class="tool primary" id="customUpload">⬆️ Mandar al R2</button>
+          <input id="customName" maxlength="16" placeholder="Nombre (ej: risa)" autocomplete="off">
+        </div>
+        <div class="row" id="customSend" hidden>
+          <button class="tool primary" id="customAdd">➕ Agregar</button>
+          <button class="tool" id="customReplace">🔄 Reemplazar todos</button>
         </div>
         <progress id="customProgress" max="1" value="0" hidden></progress>
         <div id="customStatus"></div>
@@ -170,6 +175,6 @@
     <div id="target">giro 0 · avance 0</div>
     <pre id="log"></pre>
   </section>
-  <script type="module" src="app.js?v=10"></script>
+  <script type="module" src="app.js?v=11"></script>
 </body>
 </html>

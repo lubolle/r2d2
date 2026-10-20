@@ -3,8 +3,8 @@ import {
   CMD, USER_SFX, SFX_RATE, SFX_MAX_SECONDS, SFX_CHUNK, BLE_WRITE_SIZE,
   steerValue, driveValue, steerPacket, drivePacket, soundPacket, motorPacket, describeReply, toHex,
   parseMessage, ackError, eraseUserSfxPacket, beginSfxPacket, sfxChunkPacket,
-} from './protocol.js?v=10';
-import { decodedToHubBytes, previewHubBytes, startRecording } from './audio.js?v=10';
+} from './protocol.js?v=11';
+import { decodedToHubBytes, previewHubBytes, startRecording } from './audio.js?v=11';
 
 // Pausa entre comandos para no saturar el hub (el original usaba ~100–150 ms).
 const GAP_MS = 80;
@@ -208,18 +208,30 @@ function request(pkt, timeoutMs) {
 const isOk = (msg) => msg?.cmd === CMD.ACK && ackError(msg) === 0;
 
 // Misma secuencia que la app oficial: borrar sonidos de usuario, anunciar el
-// nuevo y mandarlo en pedazos de 256 bytes (reintentando los que fallen).
-async function uploadUserSfx(bytes, onProgress) {
+// nuevo y mandarlo en pedazos (reintentando los que fallen). La app oficial
+// siempre borraba y usaba uno solo; con append se prueba agregar sin borrar.
+// Devuelve el número con el que se reproduce.
+async function uploadUserSfx(bytes, onProgress, { append, hubName }) {
   busy = true;
   try {
     await inflight?.catch(() => {});
     await request(drivePacket(0), 1500).catch(() => {});
-    log('sonido propio 1/3: borrando el anterior');
-    const erased = await request(eraseUserSfxPacket(), 20000);
-    if (!isOk(erased)) log(`borrar: respuesta cmd ${erased?.cmd}, error ${ackError(erased)}`);
-    log(`sonido propio 2/3: anunciando ${bytes.length} bytes`);
-    const begin = await request(beginSfxPacket(bytes.length, 'sound0'), 3000);
-    if (begin?.cmd !== CMD.BEGIN_NEW_SFX) throw new Error(`paso 2/3, el R2 no aceptó el sonido (error ${ackError(begin)})`);
+    if (append) {
+      log('sonido propio 1/3: agregando sin borrar');
+    } else {
+      log('sonido propio 1/3: borrando los anteriores');
+      const erased = await request(eraseUserSfxPacket(), 20000);
+      if (!isOk(erased)) log(`borrar: respuesta cmd ${erased?.cmd}, error ${ackError(erased)}`);
+    }
+    log(`sonido propio 2/3: anunciando ${bytes.length} bytes como "${hubName}"`);
+    const begin = await request(beginSfxPacket(bytes.length, hubName), 3000);
+    if (begin?.cmd !== CMD.BEGIN_NEW_SFX) {
+      const hint = append ? ' Puede que no haya más lugar: probá "Reemplazar todos".' : '';
+      throw new Error(`paso 2/3, el R2 no aceptó el sonido (error ${ackError(begin)}).${hint}`);
+    }
+    const slot = begin.data[0] ?? 0;
+    const id = slot >= USER_SFX ? slot : USER_SFX + slot;
+    log(`el R2 le asignó el lugar ${slot} → se reproduce con ${id.toString(16).toUpperCase()}`);
     // Si un pedazo falla: resincroniza, achica los pedazos y, si sigue
     // fallando, pasa a escrituras con respuesta.
     slowWrites = false;
@@ -249,6 +261,7 @@ async function uploadUserSfx(bytes, onProgress) {
       }
     }
     log(`audio enviado con ${failures} reintentos (${mode()})`);
+    return id;
   } finally {
     busy = false;
     sent.steer = sent.drive = null;
@@ -260,10 +273,44 @@ const getAudioCtx = () => (audioCtx ??= new (window.AudioContext || window.webki
 let pendingSfx = null;
 let stopRecording = null;
 
+// Sonidos propios cargados en el R2 ({ id, name }), recordados en este teléfono.
+// Si no hay nada guardado se asume el único de las versiones anteriores.
+let customSounds = [{ id: USER_SFX, name: 'mi sonido' }];
+try {
+  customSounds = JSON.parse(localStorage.getItem('customSounds')) || customSounds;
+} catch {
+  // sin almacenamiento
+}
+
+function saveCustomSounds() {
+  try {
+    localStorage.setItem('customSounds', JSON.stringify(customSounds));
+  } catch {
+    // no se recuerda, pero funciona igual
+  }
+}
+
+function renderCustomSounds() {
+  const row = $('#customSounds');
+  row.replaceChildren(...customSounds.map((s) => {
+    const b = document.createElement('button');
+    b.className = 'sound';
+    b.innerHTML = '<span class="emoji">⭐</span><span></span>';
+    b.lastChild.textContent = s.name;
+    b.addEventListener('click', () => playSound(s.id));
+    return b;
+  }));
+  row.hidden = !customSounds.length;
+}
+
+// El hub guarda un nombre de hasta 24 caracteres ASCII.
+const hubNameFor = (name) => name.normalize('NFD').replace(/[^\x20-\x7e]/g, '').slice(0, 24) || 'sound';
+
 function setPending(bytes, label) {
   if (!bytes.length) return showCustomStatus('No se escuchó nada. Probá de nuevo.');
   pendingSfx = bytes;
   $('#customReady').hidden = false;
+  $('#customSend').hidden = false;
   showCustomStatus(`${label}: ${(bytes.length / SFX_RATE).toFixed(1)} s listos para mandar.`);
 }
 
@@ -276,7 +323,7 @@ function decodeAudio(arrayBuffer) {
 }
 
 function setupCustomSound() {
-  $('#customPlay').addEventListener('click', () => playSound(USER_SFX));
+  renderCustomSounds();
 
   // Tocar para empezar y para parar: mantener apretado se corta en iPhone
   // (si el dedo se mueve un poco, iOS lo toma como scroll y cancela el toque).
@@ -323,28 +370,37 @@ function setupCustomSound() {
 
   $('#customPreview').addEventListener('click', () => pendingSfx && previewHubBytes(getAudioCtx(), pendingSfx));
 
-  $('#customUpload').addEventListener('click', async () => {
+  const upload = async (append) => {
     if (!pendingSfx) return;
     if (!characteristic) return showCustomStatus('Primero conectá el R2.');
+    const name = $('#customName').value.trim() || `sonido ${customSounds.length + (append ? 1 : 0) || 1}`;
+    const buttons = [$('#customAdd'), $('#customReplace')];
     const progress = $('#customProgress');
     progress.hidden = false;
-    $('#customUpload').disabled = true;
+    buttons.forEach((b) => { b.disabled = true; });
     try {
-      await uploadUserSfx(pendingSfx, (p) => {
+      const id = await uploadUserSfx(pendingSfx, (p) => {
         progress.value = p;
         showCustomStatus(`Mandando… ${Math.round(p * 100)}%`);
-      });
-      showCustomStatus('¡Listo! Tocá ⭐ para escucharlo en el R2.');
-      log('sonido propio cargado');
-      playSound(USER_SFX);
+      }, { append, hubName: hubNameFor(name) });
+      customSounds = append ? customSounds.filter((s) => s.id !== id) : [];
+      customSounds.push({ id, name });
+      saveCustomSounds();
+      renderCustomSounds();
+      $('#customName').value = '';
+      showCustomStatus(`¡Listo! "${name}" está en el R2.`);
+      log(`sonido propio "${name}" cargado en ${id.toString(16).toUpperCase()}`);
+      playSound(id);
     } catch (e) {
       showCustomStatus(`No se pudo mandar: ${e.message}`);
       log(`✗ sonido propio: ${e.message}`);
     } finally {
       progress.hidden = true;
-      $('#customUpload').disabled = false;
+      buttons.forEach((b) => { b.disabled = false; });
     }
-  });
+  };
+  $('#customAdd').addEventListener('click', () => upload(true));
+  $('#customReplace').addEventListener('click', () => upload(false));
 }
 
 // ---------- Controles ----------

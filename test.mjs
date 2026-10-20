@@ -5,8 +5,8 @@ import { readFileSync } from 'node:fs';
 import {
   message, parseMessage, describeReply, toHex, steerValue, driveValue, steerPacket, drivePacket, soundPacket,
   CMD, USER_SFX, SFX_RATE, eraseUserSfxPacket, beginSfxPacket, sfxChunkPacket,
-} from './protocol.js?v=10';
-import { resample, trimSilence, toHubBytes } from './audio.js?v=10';
+} from './protocol.js?v=11';
+import { resample, trimSilence, toHubBytes } from './audio.js?v=11';
 
 const root = new URL('../', import.meta.url);
 const files = ['360 deg', 'drive motor', 'turn signals', 'drivetests', 'interface06.html'];
